@@ -30,7 +30,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT status, minutes_ago AS \"minutes ago\" FROM mart.v_sync_status WHERE source = 'timetagger'"
+          "rawSql": "SELECT status, minutes_ago AS \"minutes ago\", coalesce(error, '') AS error FROM mart.v_sync_status WHERE source = 'timetagger'"
         }
       ],
       "options": {

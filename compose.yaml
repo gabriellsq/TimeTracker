@@ -63,6 +63,10 @@ services:
       GF_NEWS_NEWS_FEED_ENABLED: "false"
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/this-week.json
       GRAFANA_RO_DB_PASSWORD: ${GRAFANA_RO_DB_PASSWORD:?set in .env}
+      GF_SECURITY_SECRET_KEY: ${GRAFANA_SECRET_KEY:?set in .env}
+      GF_SECURITY_COOKIE_SECURE: "true"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
     volumes:
       - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
@@ -75,7 +79,7 @@ services:
     image: caddy:2
     restart: unless-stopped
     ports:
-      - "443:443"   # the only port exposed to the LAN
+      - "${CADDY_BIND:-0.0.0.0}:443:443"   # set CADDY_BIND=127.0.0.1 on a laptop
     environment:
       LIFELOG_DOMAIN: ${LIFELOG_DOMAIN:?set in .env}
     volumes:
