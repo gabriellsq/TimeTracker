@@ -71,3 +71,35 @@ def test_fetch_uses_cursor_as_since():
     result = TimeTaggerSource(client).fetch("123.25")
     assert client.since_seen == [123.25]
     assert result.reset is True
+
+
+def raw_rows(conn):
+    return conn.execute("SELECT key, server_ts, payload->>'ds' FROM raw.timetagger_record ORDER BY key").fetchall()
+
+
+def test_upsert_raw_inserts_new_records(conn):
+    source = TimeTaggerSource(FakeClient())
+    changed = source.upsert_raw(conn, [record(key="a"), record(key="b")])
+    assert [r["key"] for r in changed] == ["a", "b"]
+    assert raw_rows(conn) == [("a", 100.5, "#study #math"), ("b", 100.5, "#study #math")]
+
+
+def test_upsert_raw_ignores_same_server_time(conn):
+    source = TimeTaggerSource(FakeClient())
+    source.upsert_raw(conn, [record()])
+    assert source.upsert_raw(conn, [record()]) == []
+
+
+def test_upsert_raw_replaces_when_server_time_is_newer(conn):
+    source = TimeTaggerSource(FakeClient())
+    source.upsert_raw(conn, [record()])
+    changed = source.upsert_raw(conn, [record(ds="#gym", st=200.0)])
+    assert len(changed) == 1
+    assert raw_rows(conn) == [("k1", 200.0, "#gym")]
+
+
+def test_upsert_raw_never_goes_back_in_time(conn):
+    source = TimeTaggerSource(FakeClient())
+    source.upsert_raw(conn, [record(ds="#gym", st=200.0)])
+    assert source.upsert_raw(conn, [record(ds="#old", st=150.0)]) == []
+    assert raw_rows(conn) == [("k1", 200.0, "#gym")]
