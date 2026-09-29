@@ -11,6 +11,8 @@ import bcrypt
 
 def main() -> None:
     username = input("TimeTagger username: ").strip()
+    if not username or ":" in username or "," in username:
+        raise SystemExit("Username must be non-empty and must not contain ':' or ','.")
     password = getpass.getpass("TimeTagger password: ")
     if getpass.getpass("Repeat password: ") != password:
         raise SystemExit("Passwords do not match.")

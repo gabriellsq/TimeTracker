@@ -27,6 +27,7 @@ async def _timer_loop(settings: Settings) -> None:
 def create_app(settings: Settings | None = None, *, start_timer: bool = True) -> FastAPI:
     """App factory. Run with: uvicorn --factory lifelog.app:create_app"""
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     settings = settings or Settings.from_env()
 
     @asynccontextmanager
