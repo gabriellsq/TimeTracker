@@ -103,3 +103,18 @@ def test_upsert_raw_never_goes_back_in_time(conn):
     source.upsert_raw(conn, [record(ds="#gym", st=200.0)])
     assert source.upsert_raw(conn, [record(ds="#old", st=150.0)]) == []
     assert raw_rows(conn) == [("k1", 200.0, "#gym")]
+
+
+def test_upsert_raw_force_overwrites_older(conn):
+    source = TimeTaggerSource(FakeClient())
+    source.upsert_raw(conn, [record(ds="#gym", st=200.0)])
+    changed = source.upsert_raw(conn, [record(ds="#old", st=150.0)], force=True)
+    assert len(changed) == 1
+    assert raw_rows(conn) == [("k1", 150.0, "#old")]
+
+
+def test_upsert_raw_requires_server_time(conn):
+    rec = record()
+    del rec["st"]
+    with pytest.raises(KeyError):
+        TimeTaggerSource(FakeClient()).upsert_raw(conn, [rec])

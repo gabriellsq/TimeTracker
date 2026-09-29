@@ -101,7 +101,9 @@ class TimeTaggerSource:
             reset=bool(data.get("reset", 0)),
         )
 
-    def upsert_raw(self, conn: psycopg.Connection, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def upsert_raw(
+        self, conn: psycopg.Connection, records: list[dict[str, Any]], *, force: bool = False
+    ) -> list[dict[str, Any]]:
         changed = []
         with conn.cursor() as cur:
             for rec in records:
@@ -113,10 +115,10 @@ class TimeTaggerSource:
                         SET payload = EXCLUDED.payload,
                             server_ts = EXCLUDED.server_ts,
                             fetched_at = now()
-                        WHERE raw.timetagger_record.server_ts < EXCLUDED.server_ts
+                        WHERE %s OR raw.timetagger_record.server_ts < EXCLUDED.server_ts
                     RETURNING key
                     """,
-                    (str(rec["key"]), Jsonb(rec), float(rec.get("st", 0))),
+                    (str(rec["key"]), Jsonb(rec), float(rec["st"]), force),
                 )
                 if cur.fetchone() is not None:
                     changed.append(rec)

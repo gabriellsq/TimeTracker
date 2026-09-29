@@ -33,8 +33,14 @@ class Source(Protocol):
 
     def fetch(self, cursor: str | None) -> FetchResult: ...
 
-    def upsert_raw(self, conn: psycopg.Connection, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Store records in the raw table; return only those that were new or changed."""
+    def upsert_raw(
+        self, conn: psycopg.Connection, records: list[dict[str, Any]], *, force: bool = False
+    ) -> list[dict[str, Any]]:
+        """Store records in the raw table; return only those that were new or changed.
+
+        `force` bypasses the "only if newer" guard, so incoming records overwrite stored ones
+        (used after the source reports a reset).
+        """
         ...
 
     def to_activity(self, record: dict[str, Any]) -> ActivityIn: ...

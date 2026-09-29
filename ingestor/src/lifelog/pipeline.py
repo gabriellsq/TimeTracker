@@ -23,6 +23,9 @@ def run_sync(conn: psycopg.Connection, source: Source, *, trigger: str, wait_for
 
     Data, raw and cursor are written in ONE transaction: a failure anywhere leaves
     the database unchanged and the next run re-fetches the same changes.
+
+    Callers must not share `conn` between concurrent runs: session advisory locks are
+    re-entrant within one connection.
     """
     if wait_for_lock:
         conn.execute("SELECT pg_advisory_lock(%s)", (SYNC_LOCK_KEY,))
@@ -35,22 +38,44 @@ def run_sync(conn: psycopg.Connection, source: Source, *, trigger: str, wait_for
         except Exception as exc:
             log.exception("sync of %s failed", source.name)
             result = SyncResult(status="failed", error=f"{type(exc).__name__}: {exc}")
-            _record_failure(conn, source.name, result.error)
-        _finish_run(conn, run_id, result)
+            _best_effort(_record_failure, conn, source.name, result.error)
+        _best_effort(_finish_run, conn, run_id, result)
         return result
     finally:
-        conn.execute("SELECT pg_advisory_unlock(%s)", (SYNC_LOCK_KEY,))
+        if not conn.closed:
+            _best_effort(conn.execute, "SELECT pg_advisory_unlock(%s)", (SYNC_LOCK_KEY,))
+
+
+def close_stale_runs(conn: psycopg.Connection) -> int:
+    """Mark runs left 'running' by a crashed process as failed. Call once at startup (single ingestor)."""
+    return conn.execute(
+        """
+        UPDATE ops.sync_run
+        SET status = 'failed', finished_at = now(), error = 'interrupted (process stopped mid-run)'
+        WHERE status = 'running'
+        """
+    ).rowcount
+
+
+def _best_effort(fn, *args) -> None:
+    """Bookkeeping must never mask the outcome of the sync itself: log database errors and move on."""
+    try:
+        fn(*args)
+    except psycopg.Error:
+        log.exception("bookkeeping step %s failed", getattr(fn, "__name__", fn))
 
 
 def _sync(conn: psycopg.Connection, source: Source) -> SyncResult:
     with conn.transaction():
         fetched = source.fetch(_read_cursor(conn, source.name))
-        changed = source.upsert_raw(conn, fetched.records)
+        changed = source.upsert_raw(conn, fetched.records, force=fetched.reset)
         skipped = []
         for record in changed:
             try:
                 with conn.transaction():  # savepoint: one bad record never aborts the batch
                     _upsert_activity(conn, source.to_activity(record))
+            except (psycopg.OperationalError, psycopg.InterfaceError):
+                raise  # infrastructure problem, not a bad record: abort, roll back, retry next run
             except Exception as exc:
                 key = str(record.get("key"))
                 log.warning("skipping record %s from %s: %s", key, source.name, exc)

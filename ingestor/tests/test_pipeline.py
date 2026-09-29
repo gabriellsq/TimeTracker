@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime
 
 import psycopg
@@ -151,3 +152,97 @@ def test_lock_is_released_after_sync(conn, pg_url):
     sync(conn, FakeClient(updates()))
     with psycopg.connect(pg_url, autocommit=True) as other:
         assert other.execute("SELECT pg_try_advisory_lock(%s)", (SYNC_LOCK_KEY,)).fetchone()[0] is True
+
+
+class ScriptedSource(TimeTaggerSource):
+    """TimeTaggerSource whose to_activity can be overridden per key."""
+
+    def __init__(self, client, overrides):
+        super().__init__(client)
+        self._overrides = overrides
+
+    def to_activity(self, record):
+        activity = super().to_activity(record)
+        override = self._overrides.get(record["key"])
+        return override(activity) if override else activity
+
+
+def _connection_lost(activity):
+    raise psycopg.OperationalError("connection lost")
+
+
+def test_db_error_inside_a_record_aborts_the_run(conn):
+    source = ScriptedSource(FakeClient(updates(rec("k1"), rec("k2"))), {"k2": _connection_lost})
+    result = run_sync(conn, source, trigger="test", wait_for_lock=True)
+
+    assert result.status == "failed"
+    assert activities(conn) == []
+    assert conn.execute("SELECT count(*) FROM raw.timetagger_record").fetchone()[0] == 0
+    assert cursor(conn) is None
+
+
+def test_savepoint_discards_partial_record(conn):
+    def duplicate_tags(activity):
+        return dataclasses.replace(activity, tags=("a", "a"))
+
+    source = ScriptedSource(FakeClient(updates(rec("good"), rec("dup"))), {"dup": duplicate_tags})
+    result = run_sync(conn, source, trigger="test", wait_for_lock=True)
+
+    assert result.status == "success"
+    assert result.skipped_keys == ["dup"]
+    assert [a[0] for a in activities(conn)] == ["good"]
+
+
+def test_removing_all_tags_clears_them(conn):
+    sync(conn, FakeClient(updates(rec())))
+    sync(conn, FakeClient(updates(rec(ds="no tags", st=200.0), server_time=200.0)))
+    assert tags(conn) == []
+
+
+def test_undeleting_a_record(conn):
+    sync(conn, FakeClient(updates(rec(ds="HIDDEN #study"))))
+    sync(conn, FakeClient(updates(rec(ds="#study", st=200.0), server_time=200.0)))
+    assert activities(conn)[0][3] is False
+
+
+def test_lock_released_after_failed_run(conn, pg_url):
+    sync(conn, FakeClient(TimeTaggerError("unreachable")))
+    with psycopg.connect(pg_url, autocommit=True) as other:
+        assert other.execute("SELECT pg_try_advisory_lock(%s)", (SYNC_LOCK_KEY,)).fetchone()[0] is True
+
+
+def test_success_after_failure_clears_last_error(conn):
+    sync(conn, FakeClient(TimeTaggerError("unreachable")))
+    assert "unreachable" in last_run(conn)[4]
+
+    sync(conn, FakeClient(updates(rec())))
+    assert conn.execute("SELECT last_error FROM ops.sync_state").fetchone()[0] is None
+    assert cursor(conn) == "100.5"
+
+
+def test_reset_overwrites_raw_even_if_not_newer(conn):
+    sync(conn, FakeClient(updates(rec(ds="#gym", st=200.0), server_time=200.0)))
+    reset = {"server_time": 210.0, "reset": 1, "records": [rec(ds="#study", st=150.0)], "settings": []}
+    sync(conn, FakeClient(reset))
+    assert tags(conn) == [("study", 1)]
+
+
+def test_close_stale_runs(conn):
+    conn.execute("INSERT INTO ops.sync_run (source, trigger, status) VALUES ('timetagger', 'timer', 'running')")
+    conn.execute(
+        "INSERT INTO ops.sync_run (source, trigger, status, finished_at) "
+        "VALUES ('timetagger', 'timer', 'success', now())"
+    )
+
+    assert pipeline.close_stale_runs(conn) == 1
+    rows = conn.execute("SELECT status, error FROM ops.sync_run ORDER BY run_id").fetchall()
+    assert rows == [("failed", "interrupted (process stopped mid-run)"), ("success", None)]
+
+
+def test_bookkeeping_failure_does_not_mask_result(conn, monkeypatch):
+    def gone(*args):
+        raise psycopg.OperationalError("gone")
+
+    monkeypatch.setattr(pipeline, "_finish_run", gone)
+    result = sync(conn, FakeClient(updates(rec())))
+    assert result.status == "success"
