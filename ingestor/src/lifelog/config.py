@@ -1,13 +1,13 @@
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
 class Settings:
-    database_url: str
+    database_url: str = field(repr=False)
     timetagger_api_url: str
-    timetagger_token: str
+    timetagger_token: str = field(repr=False)
     sync_interval_seconds: int
     dashboard_url: str
     db_dir: str

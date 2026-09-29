@@ -28,3 +28,10 @@ def test_from_env_overrides_defaults():
 def test_from_env_missing_required_raises():
     with pytest.raises(KeyError):
         Settings.from_env({"DATABASE_URL": "x"})
+
+
+def test_repr_hides_secrets():
+    env = REQUIRED | {"DATABASE_URL": "postgresql://u:s3cret@db/lifelog", "TIMETAGGER_TOKEN": "tok123"}
+    text = repr(Settings.from_env(env))
+    assert "s3cret" not in text
+    assert "tok123" not in text
