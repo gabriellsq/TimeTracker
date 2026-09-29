@@ -20,7 +20,7 @@ On Windows/macOS for development: Docker Desktop, Colima, Rancher Desktop or Pod
 cp .env.example .env
 ```
 
-1. Fill `POSTGRES_PASSWORD`, `INGESTOR_DB_PASSWORD`, `GRAFANA_RO_DB_PASSWORD`, `GRAFANA_ADMIN_PASSWORD`, each with the output of:
+1. Fill `POSTGRES_PASSWORD`, `INGESTOR_DB_PASSWORD`, `GRAFANA_RO_DB_PASSWORD`, `GRAFANA_ADMIN_PASSWORD`, `GRAFANA_SECRET_KEY`, each with the output of:
    ```bash
    python -c "import secrets; print(secrets.token_hex(24))"
    ```
@@ -29,6 +29,9 @@ cp .env.example .env
    uv run --with bcrypt python scripts/hash_password.py
    ```
 3. Leave `TIMETAGGER_TOKEN` empty for now.
+4. On a laptop, set `CADDY_BIND=127.0.0.1` so the stack is only reachable from the laptop itself. Keep `0.0.0.0` on the home server.
+
+On the server, protect the file: `chmod 600 .env`.
 
 ## 3. Start the stack
 
@@ -42,11 +45,19 @@ Until the token is set, `docker compose logs ingestor` shows authentication erro
 
 Only HTTPS (port 443) is exposed: always type `https://` in front of the addresses below.
 
+### Passwords are applied on first start only
+
+Postgres role passwords and the Grafana admin password are taken from `.env` only when their volumes are empty (the very first `docker compose up`). Editing `.env` later does **not** change them — the ingestor or Grafana login would then fail.
+
+- Change a database password: `docker compose exec postgres psql -U postgres -d lifelog -c "ALTER ROLE ingestor PASSWORD '<new>'"` (same for `grafana_ro`), then update `.env` and run `docker compose up -d`.
+- Change the Grafana admin password: `docker compose exec grafana grafana cli admin reset-admin-password '<new>'`.
+- Start over completely: `docker compose down -v` — ⚠️ this **deletes all data** (TimeTagger records, database, dashboards state, Caddy's certificate authority). Only for a fresh setup.
+
 ## 4. Name resolution
 
 The sites are `tt.lifelog.lan`, `dash.lifelog.lan`, `sync.lifelog.lan`.
 
-- **Router (needed for the iPhone):** add local DNS entries for the three names pointing at the server's LAN IP. If the router cannot do this, a local DNS server (AdGuard Home) is needed — raise it before continuing.
+- **Router (needed for the iPhone):** add local DNS entries for the three names pointing at the server's LAN IP. If the router cannot do this, a local DNS server (AdGuard Home) is needed — raise it before continuing. If Safari on the iPhone cannot open `*.lan` addresses, turn off 'Limit IP Address Tracking' for the home Wi-Fi (Settings → Wi-Fi → (i)) and make sure iCloud Private Relay is off for that network.
 - **Laptop (quick alternative for testing):** add to the hosts file (`C:\Windows\System32\drivers\etc\hosts` on Windows, `/etc/hosts` elsewhere):
   ```
   <server-ip>  tt.lifelog.lan dash.lifelog.lan sync.lifelog.lan
@@ -67,6 +78,13 @@ docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.
   1. AirDrop or email `caddy-root.crt` to the phone and open it → "Profile Downloaded".
   2. Settings → General → VPN & Device Management → install the profile.
   3. Settings → General → About → Certificate Trust Settings → enable full trust for the Caddy root.
+
+**What trusting this certificate means:** a device that trusts Caddy's root certificate will accept *any* website certificate signed with its key. Anyone who gets that key (it lives in the `caddy_data` volume and in backups) could impersonate websites to your devices. So:
+- Trust only the root certificate from your home server on your phone.
+- Each stack creates its own certificate authority: remove a laptop test certificate from your devices when you are done testing.
+- Keep the server and its backups private.
+
+Firefox uses its own certificate store: Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import.
 
 Never tap "continue anyway" on a certificate warning for these sites after this — a warning means something is wrong.
 
@@ -91,9 +109,10 @@ Expected: `success: N records`.
 
 ## 8. Use it
 
-- TimeTagger: `https://tt.lifelog.lan` → log in. On the iPhone, open it in Safari → Share → Add to Home Screen.
+- TimeTagger: `https://tt.lifelog.lan/timetagger/app/` → log in. On the iPhone, open that address in Safari → Share → Add to Home Screen.
 - Grafana: `https://dash.lifelog.lan` → log in as `admin` with `GRAFANA_ADMIN_PASSWORD` → Lifelog → This Week.
 - Sync button: the "Sync now" link at the top of the dashboard (or `https://sync.lifelog.lan/sync`).
+- Always include at least one `#tag` in what you log (e.g. `#study`). Entries without tags appear as `(untagged)`.
 
 ## Router checklist (security)
 
