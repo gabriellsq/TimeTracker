@@ -41,6 +41,19 @@ User context: lives in Vancouver (`America/Vancouver`), iPhone + Garmin watch, e
 - Nightly backups with one tested restore
 - Automated tests
 
+Sprint 1 is delivered in four milestones (§3.1). Each milestone ends with something usable on its own.
+
+### 3.1 Milestones
+
+| Milestone | Delivers | Done when |
+|---|---|---|
+| **M1 Walking skeleton** | Compose stack (postgres, timetagger, ingestor, grafana, caddy with `tls internal`); `db/init` roles; migrations for `raw`, `core` (activity, activity_tag), `ops`; TimeTagger source + incremental sync + `/sync`; one provisional mart view (hours per tag this week, no midnight split, replaced in M2) and one Grafana panel on it. Unmapped-tag handling arrives with `core.tag` in M2 | An activity logged on the iPhone PWA over HTTPS appears in Grafana within 3 minutes or after pressing Sync |
+| **M2 Feedback loop** | `taxonomy.yaml`, `goals.yaml`, config loader; `core.tag`, `core.goal`, `core.local_tz()`; full mart star schema; goal progress, pace, streaks, days since last, personal records, running timer; **This Week** and **Trends** dashboards | This Week shows correct pace status, streaks and records for fixture and real data |
+| **M3 Trust** | DQ checks and integrity assertions, `ops.dq_result`; **Data Health** dashboard; nightly reconciliation; `rebuild` command; backup service and documented restore | A deliberately bad record shows on Data Health; a backup has been restored successfully |
+| **M4 Hardening** | Caddy basic auth on `/sync`, IP allowlist (after verifying client IPs, §5), telemetry settings verified, `nmap` check, Mac portability run | Definition of done (§12) fully met |
+
+Tests are written alongside each milestone (test-first), not as a separate milestone.
+
 ### Out of scope (later sprints)
 
 | Item | Target sprint |
@@ -107,8 +120,9 @@ TimeTracker/
 │   └── goals.yaml                # weekly goals with effective dates
 ├── contracts/activity.yaml       # data contract
 ├── db/
+│   ├── init/01-roles.sh          # run by the postgres image on first start only: creates database roles from .env
 │   ├── migrations/               # 001_schemas.sql, 002_raw.sql, 003_core.sql, 004_ops.sql ... (applied once, in order)
-│   ├── views/                    # mart views, CREATE OR REPLACE, re-applied on every start
+│   ├── views/                    # mart views; mart schema dropped and rebuilt from these on every start
 │   └── checks/                   # dq_*.sql (data issues) and test_*.sql (integrity assertions)
 ├── grafana/
 │   ├── provisioning/datasources/lifelog.yaml
@@ -123,9 +137,12 @@ TimeTracker/
 
 - **TLS:** `tls internal`. Caddy runs its own local certificate authority. Its root certificate is installed once on the iPhone (Settings → General → About → Certificate Trust Settings) and the laptop. HTTPS is needed so the TimeTagger PWA can use a service worker on iOS (offline capture).
 - **Hostnames:** `tt.lifelog.lan` (TimeTagger), `dash.lifelog.lan` (Grafana), `sync.lifelog.lan` (ingestor). They need a local DNS entry pointing at the server. iOS has no editable hosts file, so this must come from the router's local DNS, or a self-hosted DNS server (AdGuard Home) if the router cannot do it. See §14.
+- **Caddy state is persistent:** Caddy's data directory (which holds the local root CA key and certificate) lives in a named volume `caddy_data` and is included in backups. Losing it means generating a new root CA and reinstalling it on every device.
 - **Basic auth** on `sync.lifelog.lan` (the ingestor has no login of its own).
-- **IP allowlist:** all sites accept only the IPs listed in `ALLOWED_CLIENT_IPS` (the user's iPhone and laptop, with DHCP reservations on the router).
+- **IP allowlist:** all sites accept only the IPs listed in `ALLOWED_CLIENT_IPS` (the user's iPhone and laptop, with DHCP reservations on the router). An empty value disables the allowlist (used on demo machines).
+  - **Caveat:** behind Docker's published ports, Caddy may see Docker's gateway IP instead of the real client IP — on Linux for IPv6 connections, and always on Docker Desktop (macOS/Windows). Before enabling the allowlist on Fedora (M4), verify in Caddy's access logs that real client IPs appear. If they do not, run Caddy with `network_mode: host` on Linux.
 - **Application logins:** strong unique passwords for TimeTagger and Grafana; Grafana anonymous access disabled.
+- **Grafana behind the proxy:** `GF_SERVER_ROOT_URL=https://dash.lifelog.lan/` so Grafana generates correct links.
 - **Telemetry disabled:** `GF_ANALYTICS_REPORTING_ENABLED=false`, `GF_ANALYTICS_CHECK_FOR_UPDATES=false`, `GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES=false`.
 
 Threat model summary:
@@ -137,7 +154,12 @@ Threat model summary:
 | Other LAN devices accessing the apps | Allowlist + basic auth + app passwords + untrusted devices on guest Wi-Fi |
 | Internet reaching in | Router: no port forwarding to the server, UPnP disabled |
 
-User-side checklist (router and devices, not automated): no port forwarding and UPnP off; DHCP reservations for server, iPhone, laptop; IoT/TV/guests on guest Wi-Fi; install Caddy root CA on devices; never bypass certificate warnings.
+User-side checklist (router and devices, not automated):
+- Router: no port forwarding to the server; UPnP disabled.
+- Router: DHCP reservations for the server, iPhone and laptop.
+- iPhone: Settings → Wi-Fi → (i) on the home network → Private Wi-Fi Address → **Fixed** (a rotating address breaks the DHCP reservation and therefore the allowlist).
+- Router: IoT devices, TVs and guests on the guest Wi-Fi.
+- Devices: install Caddy's root CA once; never bypass certificate warnings for these sites.
 
 ## 6. Data model
 
@@ -151,8 +173,10 @@ User-side checklist (router and devices, not automated): no port forwarding and 
 | `ops` | Operational metadata: sync state, runs, DQ results | Tables | Ingestor | Grafana (Data Health) |
 
 Database roles:
-- `ingestor`: read/write `raw`, `core`, `ops`; owns views.
-- `grafana_ro`: `SELECT` on `mart` and `ops` only. No access to `raw` or `core`.
+- `ingestor`: read/write `raw`, `core`, `ops`; owns the `mart` schema and its views.
+- `grafana_ro`: `SELECT` on `mart` and `ops` only. No access to `raw` or `core`. This works because views run with their owner's privileges; mart views must therefore **not** use `security_invoker`.
+
+Roles and the `lifelog` database are created by `db/init/01-roles.sh`, which the postgres image runs on first start with passwords taken from `.env`. It runs only when the data volume is empty; changing a password later requires `ALTER ROLE` by hand (documented in `docs/`).
 
 ### 6.2 raw
 
@@ -213,7 +237,7 @@ core.goal (
 )
 ```
 
-`core.activity_tag` is a junction table (not an array column) so that `core` stays in first normal form.
+`core.activity_tag` is a junction table (not an array column) so that `core` stays in first normal form. Tags are lowercased and de-duplicated during parsing; a repeated tag keeps its first position.
 
 Tags seen in data but missing from `taxonomy.yaml` are inserted into `core.tag` with `facet = 'unmapped'` and surface on the Data Health dashboard.
 
@@ -238,7 +262,10 @@ activity:
     children:
       math: {}
       physics: {}
-      reading: {}
+      reading: {}         # reading for study; counts toward study goals
+  leisure:
+    children:
+      leisure_reading: {} # reading for fun; does not count toward study goals
   sport:
     children:
       gym: { max_duration: 3h }
@@ -271,7 +298,10 @@ mood:
 - tag: reading  period: week  target_count: 4   min_minutes: 20  from: 2026-10-01
 ```
 
-- A goal on a tag includes all descendant tags (a goal on `study` counts `math` and `physics`).
+- A goal on a tag includes all descendant tags (a goal on `study` counts `math`, `physics` and `reading`; `leisure_reading` is outside the `study` branch and does not count).
+- Goals use the **primary** allocation rule on the `activity` facet, so an activity never counts toward the same goal twice.
+- `target_hours` sums segment hours per local ISO week (an activity crossing a week boundary contributes to each week).
+- `target_count` counts **distinct activities** of at least `min_minutes`, assigned to the week in which they **started**.
 - Goals are versioned by effective date (SCD type 2): changing a target adds a new entry with a new `from`, so past weeks are judged against the target that applied then.
 - Weeks start Monday (ISO 8601).
 
@@ -395,18 +425,23 @@ The cursor is saved in the same transaction as the data, so a crash at any point
 
 Once per night the ingestor performs a full fetch (cursor 0) and marks core activities whose source record no longer exists as deleted. This catches anything the incremental sync could miss.
 
-### 8.3 Config loading
+### 8.3 Rebuild
+
+`docker compose exec ingestor lifelog rebuild` deletes all `core.activity` / `core.activity_tag` rows for a source and regenerates them from `raw`, in one transaction. Used after fixing a parsing bug. No refetch from TimeTagger is needed.
+
+### 8.4 Config loading
 
 On startup and at the beginning of each sync, the ingestor loads `config/taxonomy.yaml` and `config/goals.yaml`, validates them (pydantic), and replaces `core.tag` / `core.goal` in a transaction. On validation error the previous version stays active and the error is shown on the status tile.
 
-### 8.4 Startup
+### 8.5 Startup
 
 1. Wait for Postgres.
-2. Apply `db/migrations/*.sql` not yet recorded in `ops.schema_migration`, in order.
-3. Re-apply all `db/views/*.sql` (`CREATE OR REPLACE VIEW`).
-4. Load config, run an initial sync, start the timer and HTTP server.
+2. Create `ops` schema and `ops.schema_migration` if missing (bootstrapped by `db.py`, since migrations themselves are tracked there).
+3. Apply `db/migrations/*.sql` not yet recorded in `ops.schema_migration`, in filename order, each in its own transaction.
+4. Rebuild the mart in one transaction: `DROP SCHEMA mart CASCADE`, `CREATE SCHEMA mart`, apply `db/views/*.sql` in filename order, then grant `USAGE` and `SELECT` on `mart` to `grafana_ro`. Safe because `mart` holds only views, never data; this avoids `CREATE OR REPLACE VIEW`'s inability to rename, remove or retype columns.
+5. Load config, run an initial sync, start the timer and HTTP server.
 
-### 8.5 Modules
+### 8.6 Modules
 
 | Module | Responsibility |
 |---|---|
@@ -417,10 +452,11 @@ On startup and at the beginning of each sync, the ingestor loads `config/taxonom
 | `dq.py` | Runs `db/checks/*.sql` |
 | `db.py` | Connection, migrations, views |
 | `app.py` | FastAPI app: `GET /sync` (sync then redirect to `DASHBOARD_URL`), `GET /health`, background timer |
+| `cli.py` | `lifelog rebuild`, `lifelog sync` (manual one-off run) |
 
 Stack: Python 3.12, `httpx`, `psycopg` 3, `pydantic`, `fastapi` + `uvicorn`, `pyyaml`, managed with `uv`. Structured JSON logs to stdout.
 
-### 8.6 Error handling
+### 8.7 Error handling
 
 | Failure | Behavior |
 |---|---|
@@ -432,7 +468,7 @@ Stack: Python 3.12, `httpx`, `psycopg` 3, `pydantic`, `fastapi` + `uvicorn`, `py
 | Postgres unavailable | Container healthcheck + `restart: unless-stopped`; sync resumes automatically |
 | Concurrent button + timer | Advisory lock; no duplicate work |
 
-### 8.7 Configuration (`.env`)
+### 8.8 Configuration (`.env`)
 
 ```bash
 POSTGRES_PASSWORD=...
@@ -447,13 +483,15 @@ DASHBOARD_URL=https://dash.lifelog.lan/d/this-week
 GRAFANA_ADMIN_PASSWORD=...
 SYNC_BASIC_AUTH_USER=...
 SYNC_BASIC_AUTH_HASH=...
-ALLOWED_CLIENT_IPS=192.168.1.20 192.168.1.21
+ALLOWED_CLIENT_IPS=192.168.1.20 192.168.1.21   # empty = allowlist disabled
 BACKUP_DIR=/mnt/backup/lifelog
 ```
 
 ## 9. Dashboards (Grafana)
 
-All dashboards and the Postgres datasource (user `grafana_ro`) are provisioned from `grafana/`. Changes are made in the Grafana UI, exported as JSON, and committed. Auto-refresh: 1 minute.
+All dashboards and the Postgres datasource (user `grafana_ro`) are provisioned from `grafana/`. Auto-refresh: 1 minute.
+
+Editing workflow: the dashboard provider sets `allowUiUpdates: true`, so dashboards can be edited and saved in the Grafana UI. **UI changes are overwritten by the file on the next provisioning reload**, so every change must be exported (Dashboard → Export → JSON) into `grafana/dashboards/` and committed.
 
 ### 9.1 This Week (home; single column, readable on iPhone)
 
@@ -487,6 +525,7 @@ TimeTagger's SQLite database is the only source of truth for manually captured a
 
 - `pg_dump` of `lifelog`
 - SQLite online backup (`sqlite3 .backup`) of the TimeTagger database
+- Archive of the `caddy_data` volume (local root CA)
 - Writes to `BACKUP_DIR`, which must be on a different disk than the Docker volumes
 - Keeps 30 days of backups
 
@@ -530,6 +569,9 @@ Test-first with `pytest`. Run everything with `just test`.
 ## 14. To verify during implementation
 
 - TimeTagger self-hosted API base path (expected `/timetagger/api/v2/...`), auth header name, `updates` response fields, and how deleted/hidden records are marked.
+- That a running record is represented as `t1 == t2`.
+- Whether Caddy sees real client IPs behind Docker on Fedora (IPv4 and IPv6) before enabling the allowlist.
+- Hostname suffix: `.lan` is used throughout; `home.arpa` (RFC 8375, reserved for home networks) is the standards-compliant alternative if `.lan` causes resolution issues.
 - TimeTagger PWA offline behavior on iOS Safari.
 - `TIMETAGGER_CREDENTIALS` format for the Docker image.
 - Whether the user's router supports local DNS entries; if not, add AdGuard Home as a local DNS server.
@@ -550,4 +592,6 @@ Test-first with `pytest`. Run everything with `just test`.
 | Goals | Sprint 1, weekly, effective-dated | Sprint 3 | Goals are the core of the feedback loop |
 | Untracked time | Not modeled | Coverage % | Absence of tracking is the signal; surfaced via goals, streaks, days since last |
 | Data quality | Flag, never fix | Auto-correct | Keeps user in control; mistakes stay visible |
-| Views | Plain views | Materialized views, dbt | Tiny data volume; always live; dbt when the mart grows |
+| Views | Plain views, mart schema rebuilt on start | Materialized views, dbt, `CREATE OR REPLACE` | Tiny data volume; always live; rebuild allows any view change; dbt when the mart grows |
+| Delivery | Four milestones (M1–M4) | One big-bang sprint | Something usable at the end of each milestone; feedback loop exists after M2 |
+| Reading | `reading` under `study`; `leisure_reading` under `leisure` | Single `reading` tag | Study reading counts toward study goals, leisure reading does not |
