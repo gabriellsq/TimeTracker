@@ -1,0 +1,95 @@
+name: lifelog
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: lifelog
+      INGESTOR_DB_PASSWORD: ${INGESTOR_DB_PASSWORD:?set in .env}
+      GRAFANA_RO_DB_PASSWORD: ${GRAFANA_RO_DB_PASSWORD:?set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lifelog"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # No "ports:" — Postgres is reachable only on the internal compose network.
+
+  timetagger:
+    # Pinned to the image verified by tests/test_timetagger_integration.py.
+    image: ghcr.io/almarklein/timetagger@sha256:04797c616a25760ee94b352273535a516881ca820e507aee9abf7a63e5768502
+    restart: unless-stopped
+    environment:
+      TIMETAGGER_BIND: 0.0.0.0:80
+      TIMETAGGER_DATADIR: /root/_timetagger
+      TIMETAGGER_LOG_LEVEL: info
+      TIMETAGGER_CREDENTIALS: ${TIMETAGGER_CREDENTIALS:?set in .env}
+    volumes:
+      - timetagger_data:/root/_timetagger
+
+  ingestor:
+    build: ./ingestor
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://ingestor:${INGESTOR_DB_PASSWORD}@postgres:5432/lifelog
+      TIMETAGGER_API_URL: http://timetagger:80/timetagger/api/v2
+      TIMETAGGER_TOKEN: ${TIMETAGGER_TOKEN:-}
+      SYNC_INTERVAL_SECONDS: ${SYNC_INTERVAL_SECONDS:-120}
+      DASHBOARD_URL: ${DASHBOARD_URL:?set in .env}
+      DB_DIR: /app/db
+    volumes:
+      - ./db:/app/db:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      timetagger:
+        condition: service_started
+
+  grafana:
+    image: grafana/grafana-oss:13.0.2
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set in .env}
+      GF_SERVER_ROOT_URL: https://dash.${LIFELOG_DOMAIN:?set in .env}/
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/this-week.json
+      GRAFANA_RO_DB_PASSWORD: ${GRAFANA_RO_DB_PASSWORD:?set in .env}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "443:443"   # the only port exposed to the LAN
+    environment:
+      LIFELOG_DOMAIN: ${LIFELOG_DOMAIN:?set in .env}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # holds the local root CA: must persist
+      - caddy_config:/config
+    depends_on:
+      - timetagger
+      - grafana
+      - ingestor
+
+volumes:
+  pgdata:
+  timetagger_data:
+  grafana_data:
+  caddy_data:
+  caddy_config:

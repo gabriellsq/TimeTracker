@@ -1,0 +1,67 @@
+{
+  "uid": "this-week",
+  "title": "This Week",
+  "tags": ["lifelog"],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "1m",
+  "time": { "from": "now-7d", "to": "now" },
+  "links": [
+    {
+      "title": "Sync now",
+      "type": "link",
+      "url": "https://sync.lifelog.lan/sync",
+      "icon": "sync",
+      "targetBlank": false
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Last sync",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 4 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT status, minutes_ago AS \"minutes ago\" FROM mart.v_sync_status WHERE source = 'timetagger'"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/", "values": true },
+        "textMode": "value_and_name",
+        "colorMode": "none"
+      }
+    },
+    {
+      "id": 2,
+      "type": "barchart",
+      "title": "Hours per tag this week",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 12 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT tag, hours FROM mart.v_week_tag_hours ORDER BY hours DESC"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "xField": "tag",
+        "showValue": "always",
+        "legend": { "showLegend": false }
+      },
+      "fieldConfig": { "defaults": { "unit": "h", "decimals": 1 }, "overrides": [] }
+    }
+  ]
+}

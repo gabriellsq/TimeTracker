@@ -1,0 +1,16 @@
+apiVersion: 1
+
+datasources:
+  - name: lifelog
+    uid: lifelog-pg
+    type: grafana-postgresql-datasource
+    url: postgres:5432
+    user: grafana_ro
+    isDefault: true
+    editable: false
+    jsonData:
+      database: lifelog
+      sslmode: disable
+      timescaledb: false
+    secureJsonData:
+      password: $GRAFANA_RO_DB_PASSWORD

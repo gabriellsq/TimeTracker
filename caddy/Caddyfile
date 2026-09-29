@@ -1,0 +1,17 @@
+{
+	# Issue all certificates from Caddy's own local CA (no internet, no public DNS).
+	local_certs
+}
+
+tt.{$LIFELOG_DOMAIN} {
+	reverse_proxy timetagger:80
+}
+
+dash.{$LIFELOG_DOMAIN} {
+	reverse_proxy grafana:3000
+}
+
+sync.{$LIFELOG_DOMAIN} {
+	# M4 adds basic_auth and the IP allowlist here.
+	reverse_proxy ingestor:8000
+}

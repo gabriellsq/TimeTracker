@@ -1,0 +1,9 @@
+apiVersion: 1
+
+providers:
+  - name: lifelog
+    folder: Lifelog
+    type: file
+    allowUiUpdates: true   # UI edits are allowed but overwritten on reload: export JSON and commit
+    options:
+      path: /var/lib/grafana/dashboards
