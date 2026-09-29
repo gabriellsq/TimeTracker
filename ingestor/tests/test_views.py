@@ -64,3 +64,8 @@ def test_grafana_role_can_read_mart_views(conn):
         conn.execute("SELECT * FROM mart.v_sync_status").fetchall()
     finally:
         conn.execute("RESET ROLE")
+
+
+def test_untagged_activity_is_counted(conn):
+    add_activity(conn, "u", f"{WEEK_START} + interval '1 hour'", f"{WEEK_START} + interval '2 hours'", [])
+    assert float(week_hours(conn)["(untagged)"]) == 1.0
