@@ -1,8 +1,15 @@
+import psycopg
+import pytest
 from conftest import DB_DIR
 
 from lifelog import db
 
-MIGRATIONS = ["001_schemas.sql", "002_raw.sql", "003_core.sql", "004_ops.sql"]
+MIGRATIONS = sorted(p.name for p in (DB_DIR / "migrations").glob("*.sql"))
+
+
+def write(path, text):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
 
 
 def table_exists(conn, qualified_name):
@@ -53,3 +60,55 @@ def test_rebuild_mart_with_real_views(empty_db):
     db.rebuild_mart(empty_db, DB_DIR)
     assert table_exists(empty_db, "mart.v_week_tag_hours")
     assert table_exists(empty_db, "mart.v_sync_status")
+
+
+def test_setup_allows_migration_that_alters_a_column_used_by_a_view(empty_db, tmp_path):
+    write(tmp_path / "migrations" / "001.sql", "CREATE SCHEMA IF NOT EXISTS core; CREATE TABLE core.t (x int);")
+    write(tmp_path / "views" / "010.sql", "CREATE VIEW mart.v AS SELECT x FROM core.t;")
+    db.setup(empty_db, tmp_path)
+
+    write(tmp_path / "migrations" / "002.sql", "ALTER TABLE core.t ALTER COLUMN x TYPE bigint;")
+    assert db.setup(empty_db, tmp_path) == ["002.sql"]
+    assert table_exists(empty_db, "mart.v")
+
+    # The bug setup() avoids: migrating while the view still exists.
+    write(tmp_path / "migrations" / "003.sql", "ALTER TABLE core.t ALTER COLUMN x TYPE int;")
+    with pytest.raises(psycopg.errors.FeatureNotSupported):
+        db.migrate(empty_db, tmp_path)
+
+
+def test_failed_migration_leaves_no_trace(empty_db, tmp_path):
+    write(tmp_path / "migrations" / "001.sql", "CREATE SCHEMA core; CREATE TABLE core.t (x int);")
+    write(tmp_path / "migrations" / "002.sql", "CREATE TABLE core.u (y int); SELECT * FROM does_not_exist;")
+
+    with pytest.raises(psycopg.errors.UndefinedTable):
+        db.migrate(empty_db, tmp_path)
+
+    assert not table_exists(empty_db, "core.u")
+    assert empty_db.execute("SELECT filename FROM ops.schema_migration").fetchall() == [("001.sql",)]
+
+
+def test_broken_view_keeps_previous_mart(empty_db, tmp_path):
+    db.migrate(empty_db, DB_DIR)
+    write(tmp_path / "views" / "010_v.sql", "CREATE VIEW mart.v AS SELECT 1 AS a;")
+    db.rebuild_mart(empty_db, tmp_path)
+
+    write(tmp_path / "views" / "010_v.sql", "CREATE VIEW mart.v AS SELECT * FROM does_not_exist;")
+    with pytest.raises(psycopg.Error):
+        db.rebuild_mart(empty_db, tmp_path)
+
+    assert empty_db.execute("SELECT a FROM mart.v").fetchone() == (1,)
+
+
+def test_sql_files_with_bom_are_accepted(empty_db, tmp_path):
+    db.migrate(empty_db, DB_DIR)
+    write(tmp_path / "views" / "010_v.sql", "﻿CREATE VIEW mart.v AS SELECT 1 AS a;")
+    db.rebuild_mart(empty_db, tmp_path)
+    assert empty_db.execute("SELECT a FROM mart.v").fetchone() == (1,)
+
+
+def test_wait_for_db_gives_up_after_deadline():
+    sleeps = []
+    with pytest.raises(psycopg.OperationalError):
+        db.wait_for_db("postgresql://u:p@127.0.0.1:1/x", timeout_seconds=0, sleep=sleeps.append)
+    assert sleeps == []

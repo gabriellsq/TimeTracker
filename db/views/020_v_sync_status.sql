@@ -8,7 +8,7 @@ SELECT
     n_records,
     n_skipped,
     error,
-    (extract(epoch FROM now() - coalesce(finished_at, started_at)) / 60)::int AS minutes_ago
+    floor(extract(epoch FROM now() - coalesce(finished_at, started_at)) / 60)::int AS minutes_ago
 FROM (
     SELECT DISTINCT ON (source) *
     FROM ops.sync_run

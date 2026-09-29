@@ -16,7 +16,7 @@ lifelog = "lifelog.cli:main"
 [dependency-groups]
 dev = [
     "pytest>=8",
-    "testcontainers[postgres]>=4.8",
+    "testcontainers[postgres]>=4.15",
 ]
 
 [build-system]
