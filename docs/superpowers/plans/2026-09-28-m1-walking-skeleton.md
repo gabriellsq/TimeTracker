@@ -2498,3 +2498,29 @@ Expected: the activity appears. **M1 done.**
 ```bash
 git commit --allow-empty -m "chore: M1 walking skeleton verified end to end"
 ```
+
+---
+
+## Implementation notes (2026-09-30)
+
+Executed task by task with per-task reviews and a final whole-branch review. What changed compared with the plan above:
+
+| Area | Change | Why |
+|---|---|---|
+| Task 2 | `ingestor/.python-version` pins 3.12; `Settings` hides `database_url` and `timetagger_token` from `repr` | Local tests ran on 3.14 while the image runs 3.12; secrets must not leak into logs |
+| Task 7 | `db.setup()` = drop mart → migrate → rebuild mart, under advisory lock `4_242_000`; `lock_timeout` 10 s on rebuild; SQL read as `utf-8-sig`; `connect_timeout=5`; `minutes_ago` uses `floor`; `testcontainers.community.postgres` (>= 4.15); failure-path tests | A migration altering a column used by a view would fail if mart still existed; concurrent starts; BOM from Windows editors |
+| Task 9 | Infra errors (`OperationalError`, `InterfaceError`) abort the run instead of skipping the record; best-effort run bookkeeping and unlock; `close_stale_runs()`; `upsert_raw(force=reset)`; `st` required; 11 extra tests | Transient DB errors would silently drop records; a dead connection masked errors and left runs 'running'; TimeTagger `reset` was ignored |
+| Task 11 | Startup calls `db.setup()` then `close_stale_runs()`; startup test added | Follows Task 7 and 9 changes |
+| Task 13 | `UV_PYTHON_DOWNLOADS=never` in the Dockerfile | Image must use its own Python 3.12 |
+| Task 14 | TimeTagger pinned by digest (the one verified by the integration test); Grafana pinned to 13.0.2; compose validated with `--env-file` in a scratch dir (no `.env` in the repo) | Reproducible deploys |
+| Final review | Untagged activities shown as `(untagged)`; `CADDY_BIND` (127.0.0.1 on laptops); Grafana hardening (`GF_SECURITY_SECRET_KEY`, secure cookies, no external snapshots, no plugin preinstall); `REVOKE TEMP/CONNECT ON DATABASE lifelog FROM PUBLIC`; httpx logs at WARNING; username validation in `hash_password.py`; setup guide: first-start passwords, CA trust, app URL, Safari/Firefox notes | Cross-cutting review findings |
+| E2E | "Last sync" tile shows one line (`✅ success · 1 min ago · <error>`) | Grafana split the three columns into confusing labels |
+
+Environment notes (Windows dev machine):
+- `uv` installed with `pip install --user uv` is not on PATH: use `python -m uv`. From Claude's shell, uv's managed-Python junctions cannot be traversed; `.venv` was created from the concrete interpreter path.
+- Windows `curl` (schannel) needs `--ssl-no-revoke` against Caddy's local CA (no revocation list). Browsers are unaffected.
+
+Verification status:
+- 77 automated tests pass (including 2 integration tests against a real TimeTagger container).
+- End to end on the Windows laptop (2026-09-30): activities logged in TimeTagger (running and finished, including one back-dated to the previous day) appear in Grafana via the 2-minute timer or immediately via Sync now; only `127.0.0.1:443` published.
+- Pending: Task 16 steps 7–8 on the Fedora server with the iPhone (router DNS, CA on the phone, Home Screen app).
