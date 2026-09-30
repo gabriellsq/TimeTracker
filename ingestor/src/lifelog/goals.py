@@ -41,7 +41,8 @@ def load_goals(conn: psycopg.Connection, week_start: date) -> dict[str, Decimal]
 
 def study_hours(conn: psycopg.Connection, week_start: date) -> Decimal:
     """Study hours done in the given local week, with the same rules as the mart views.
-    Inner join on purpose: least()/greatest() ignore NULLs, so a LEFT JOIN would turn 'no activity' into a full week."""
+    Inner join on purpose: least()/greatest() ignore NULLs, so a LEFT JOIN would turn 'no activity' into a full week.
+    Meant for past weeks: unlike the views it does not clamp to now(), so for the current week it would count future-dated entries."""
     return conn.execute(
         """
         WITH w AS (

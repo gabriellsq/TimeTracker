@@ -25,7 +25,7 @@ sync.{$LIFELOG_DOMAIN} {
 		{$SYNC_BASIC_AUTH_USER} {$SYNC_BASIC_AUTH_HASH}
 	}
 	request_body {
-		max_size 16KB
+		max_size 16KiB
 	}
 	# Keep the client's Host header (the default): the goals page's CSRF check compares it with Origin.
 	reverse_proxy ingestor:8000
