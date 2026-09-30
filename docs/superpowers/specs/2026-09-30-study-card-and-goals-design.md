@@ -39,7 +39,7 @@ Seed rows: `('ds', 'DS and Algorithms', '{ds}', 'ds/', 1)`, `('systemanalysis', 
 |---|---|
 | `mart.v_current_week` | `week_start` (date), `t0`, `t1` (timestamptz bounds of the current local week) |
 | `mart.v_study_activity` | One row per non-deleted study activity: `activity_id`, `started_at`, `ended_at` (now() if running), `subjects` (text[]) |
-| `mart.v_study_week` | Current week: `hours`, `sessions`, `goal_hours`, `expected_hours` (goal × elapsed fraction), `status` (`no goal` / `behind` / `ahead` / `done`), `title`, `summary` text |
+| `mart.v_study_week` | Current week: `hours`, `sessions`, `goal_hours`, `expected_hours` (goal × elapsed fraction), `status` (`no goal` / `behind` / `ahead` / `done`), `week_label`, `summary` text. Hours count only time up to now (future-dated entries count once they happen). A goal whose subjects are all 0 counts as no goal. |
 | `mart.v_study_week_cumulative` | Hourly points from `t0` to `t1` plus `now()`: `actual_hours` (NULL after now), `pace_hours` (NULL when no goal) |
 | `mart.v_study_subject_week` | Per subject: `hours`, `goal_hours`, `display` (`DS and Algorithms · 5.5 / 8 h`) |
 

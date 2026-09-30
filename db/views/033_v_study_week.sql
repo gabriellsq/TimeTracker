@@ -1,5 +1,6 @@
 -- Current week study summary for the Study card.
 -- goal_hours is the sum of this week's subject goals (NULL when none are set).
+-- An all-zero goal counts as "no goal". "done" compares the displayed (rounded) total.
 CREATE VIEW mart.v_study_week AS
 SELECT s.*,
        s.week_label || ' · ' || s.sessions || CASE WHEN s.sessions = 1 THEN ' session' ELSE ' sessions' END
@@ -13,7 +14,7 @@ FROM (
            goal.goal_hours,
            round(pace.expected, 1) AS expected_hours,
            CASE WHEN goal.goal_hours IS NULL THEN 'no goal'
-                WHEN done.hours >= goal.goal_hours THEN 'done'
+                WHEN round(done.hours, 1) >= goal.goal_hours THEN 'done'
                 WHEN done.hours >= pace.expected THEN 'ahead'
                 ELSE 'behind' END AS status,
            to_char(w.week_start, 'Mon FMDD') || ' – ' || to_char(w.week_start + 6, 'Mon FMDD') AS week_label
@@ -22,7 +23,7 @@ FROM (
         SELECT coalesce(sum(hours), 0) AS hours, count(*) AS sessions FROM mart.v_study_week_activity
     ) done
     CROSS JOIN (
-        SELECT sum(g.target_hours) AS goal_hours
+        SELECT nullif(sum(g.target_hours), 0) AS goal_hours
         FROM core.goal g JOIN mart.v_current_week cw ON g.week_start = cw.week_start
     ) goal
     CROSS JOIN LATERAL (

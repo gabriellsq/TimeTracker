@@ -1,4 +1,5 @@
 -- Hours and goal per subject for the current week. An activity with two subjects counts for both.
+-- Hours tagged only #study (no subject) count in the weekly total but in no subject row.
 CREATE VIEW mart.v_study_subject_week AS
 SELECT s.subject,
        s.label,

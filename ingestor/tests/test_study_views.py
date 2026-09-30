@@ -9,6 +9,12 @@ def at(hours):
     return f"{T0} + interval '{hours} hours'"
 
 
+@pytest.fixture(autouse=True)
+def _enough_of_the_week_has_passed(conn):
+    if conn.execute(f"SELECT now() < {at(5)}").fetchone()[0]:
+        pytest.skip("study view tests need the first 5 hours of the current week to have passed")
+
+
 def add_activity(conn, source_id, start_sql, end_sql, tags, deleted=False):
     activity_id = conn.execute(
         f"""
@@ -111,8 +117,6 @@ def test_summary_text(conn):
 
 
 def test_cumulative_actual_reaches_total_until_now(conn):
-    if conn.execute(f"SELECT now() < {at(3)}").fetchone()[0]:
-        pytest.skip("needs at least 3 hours of the current week to have passed")
     add_activity(conn, "a", at(1), at(2), ["study"])
     latest = conn.execute(
         """
@@ -152,3 +156,43 @@ def test_grafana_role_can_read_study_views(conn):
             conn.execute(f"SELECT * FROM mart.{view}").fetchall()
     finally:
         conn.execute("RESET ROLE")
+
+
+def test_running_activity_counts_until_now(conn):
+    add_activity(conn, "r", "now() - interval '30 minutes'", "NULL", ["study"])
+    assert float(week(conn)[0]) == 0.5
+
+
+def test_future_part_is_not_counted_yet(conn):
+    add_activity(conn, "f", "now() - interval '1 hour'", "now() + interval '5 hours'", ["study"])
+    hours, sessions, *_ = week(conn)
+    assert (float(hours), sessions) == (1.0, 1)
+    latest = conn.execute(
+        "SELECT actual_hours FROM mart.v_study_week_cumulative WHERE actual_hours IS NOT NULL ORDER BY time DESC LIMIT 1"
+    ).fetchone()[0]
+    assert round(float(latest), 1) == 1.0
+
+
+def test_future_activity_is_not_counted(conn):
+    add_activity(conn, "f", "now() + interval '1 hour'", "now() + interval '2 hours'", ["study"])
+    hours, sessions, *_ = week(conn)
+    assert (float(hours), sessions) == (0.0, 0)
+
+
+def test_zero_duration_is_not_a_session(conn):
+    add_activity(conn, "z", at(1), at(1), ["study"])
+    assert week(conn)[1] == 0
+
+
+def test_goal_of_zero_means_no_goal(conn):
+    set_goal(conn, "ds", 0)
+    _, _, goal, status, summary = week(conn)
+    assert (goal, status) == (None, "no goal")
+    assert summary.endswith("no goal set")
+
+
+def test_done_uses_the_rounded_total(conn):
+    set_goal(conn, "ds", 2)
+    add_activity(conn, "a", at(1), f"{T0} + interval '2 hours 59 minutes 57 seconds'", ["ds"])
+    hours, _, _, status, _ = week(conn)
+    assert (float(hours), status) == (2.0, "done")
