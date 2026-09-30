@@ -3,25 +3,137 @@
   "title": "This Week",
   "tags": ["lifelog"],
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": true,
   "refresh": "1m",
-  "time": { "from": "now-7d", "to": "now" },
+  "weekStart": "monday",
+  "time": { "from": "now/w", "to": "now/w" },
   "links": [
-    {
-      "title": "Sync now",
-      "type": "link",
-      "url": "https://sync.lifelog.lan/sync",
-      "icon": "sync",
-      "targetBlank": false
-    }
+    { "title": "Sync now", "type": "link", "url": "https://sync.lifelog.lan/sync", "icon": "sync", "targetBlank": false },
+    { "title": "Set goals", "type": "link", "url": "https://sync.lifelog.lan/goals", "icon": "edit", "targetBlank": false }
   ],
   "panels": [
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Study",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 5 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT hours AS \"Study\" FROM mart.v_study_week"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^Study$/", "values": false },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center"
+      },
+      "fieldConfig": { "defaults": { "unit": "h", "decimals": 1 }, "overrides": [] }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "This week",
+      "gridPos": { "x": 8, "y": 0, "w": 16, "h": 5 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT summary AS \"Week\" FROM mart.v_study_week"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^Week$/", "values": true },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "text": { "valueSize": 20 }
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Study vs goal pace",
+      "gridPos": { "x": 0, "y": 5, "w": 24, "h": 10 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT time, actual_hours AS \"Study\", pace_hours AS \"Goal pace\" FROM mart.v_study_week_cumulative ORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "h",
+          "decimals": 1,
+          "min": 0,
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never", "spanNulls": false }
+        },
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Goal pace" },
+            "properties": [
+              { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } },
+              { "id": "color", "value": { "mode": "fixed", "fixedColor": "#8e8e8e" } },
+              { "id": "custom.fillOpacity", "value": 0 },
+              { "id": "custom.lineWidth", "value": 1 }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": { "showLegend": true, "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi", "sort": "none" }
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Subjects",
+      "gridPos": { "x": 0, "y": 15, "w": 24, "h": 4 },
+      "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT display AS \"Subject\" FROM mart.v_study_subject_week ORDER BY sort_order"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^Subject$/", "values": true },
+        "textMode": "value",
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "text": { "valueSize": 18 }
+      }
+    },
     {
       "id": 1,
       "type": "stat",
       "title": "Last sync",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 4 },
+      "gridPos": { "x": 0, "y": 19, "w": 24, "h": 3 },
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
       "targets": [
         {
@@ -44,7 +156,7 @@
       "id": 2,
       "type": "barchart",
       "title": "Hours per tag this week",
-      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 12 },
+      "gridPos": { "x": 0, "y": 22, "w": 24, "h": 10 },
       "datasource": { "type": "grafana-postgresql-datasource", "uid": "lifelog-pg" },
       "targets": [
         {
