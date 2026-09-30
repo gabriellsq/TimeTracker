@@ -112,3 +112,21 @@ def test_wait_for_db_gives_up_after_deadline():
     with pytest.raises(psycopg.OperationalError):
         db.wait_for_db("postgresql://u:p@127.0.0.1:1/x", timeout_seconds=0, sleep=sleeps.append)
     assert sleeps == []
+
+
+def test_subjects_are_seeded(conn):
+    rows = conn.execute("SELECT subject, label, tags, tag_prefix FROM core.subject ORDER BY sort_order").fetchall()
+    assert rows == [
+        ("ds", "DS and Algorithms", ["ds"], "ds/"),
+        ("systemanalysis", "System Analysis", ["systemanalysis"], None),
+    ]
+
+
+def test_goal_week_must_start_on_monday(conn):
+    with pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute("INSERT INTO core.goal (week_start, subject, target_hours) VALUES ('2026-09-29', 'ds', 8)")
+
+
+def test_goal_hours_are_bounded(conn):
+    with pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute("INSERT INTO core.goal (week_start, subject, target_hours) VALUES ('2026-09-28', 'ds', 41)")
