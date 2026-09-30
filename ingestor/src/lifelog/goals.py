@@ -40,19 +40,18 @@ def load_goals(conn: psycopg.Connection, week_start: date) -> dict[str, Decimal]
 
 
 def study_hours(conn: psycopg.Connection, week_start: date) -> Decimal:
-    """Study hours done in the given local week, with the same rules as the mart views."""
+    """Study hours done in the given local week, with the same rules as the mart views.
+    Inner join on purpose: least()/greatest() ignore NULLs, so a LEFT JOIN would turn 'no activity' into a full week."""
     return conn.execute(
         """
         WITH w AS (
             SELECT %(w)s::timestamp AT TIME ZONE 'America/Vancouver' AS t0,
                    (%(w)s::timestamp + interval '7 days') AT TIME ZONE 'America/Vancouver' AS t1
         )
-        SELECT round(coalesce(sum(CASE WHEN a.activity_id IS NOT NULL
-                                        THEN extract(epoch FROM least(a.ended_at, w.t1) - greatest(a.started_at, w.t0))
-                                        ELSE NULL END), 0)
+        SELECT round(coalesce(sum(extract(epoch FROM least(a.ended_at, w.t1) - greatest(a.started_at, w.t0))), 0)
                      / 3600, 1)
         FROM w
-        LEFT JOIN mart.v_study_activity a ON a.started_at < w.t1 AND a.ended_at > w.t0
+        JOIN mart.v_study_activity a ON a.started_at < w.t1 AND a.ended_at > w.t0
         """,
         {"w": week_start},
     ).fetchone()[0]
