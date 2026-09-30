@@ -34,6 +34,7 @@ cp .env.example .env
    ```bash
    docker run --rm -it caddy:2 caddy hash-password
    ```
+   On Windows, run it in PowerShell (Git Bash needs `winpty docker run …`).
    Save that password in your password manager: your browser asks for it once.
 
 On the server, protect the file: `chmod 600 .env`.
@@ -56,13 +57,19 @@ Postgres role passwords and the Grafana admin password are taken from `.env` onl
 
 - Change a database password: `docker compose exec postgres psql -U postgres -d lifelog -c "ALTER ROLE ingestor PASSWORD '<new>'"` (same for `grafana_ro`), then update `.env` and run `docker compose up -d`.
 - Change the Grafana admin password: `docker compose exec grafana grafana cli admin reset-admin-password '<new>'`.
-- Start over completely: `docker compose down -v` — ⚠️ this **deletes all data** (TimeTagger records, database, dashboards state, Caddy's certificate authority). Only for a fresh setup.
+- Start over completely: `docker compose down -v` — ⚠️ this **deletes all data** (TimeTagger records, database, dashboards state, Caddy's certificate authority). Only for a fresh setup. After this, re-export and re-trust the new root certificate on every device: browsers refuse these sites (no 'continue' button) until you do, because they only allow HTTPS for them.
 
-**Updating an existing install:** new required `.env` values (such as `SYNC_BASIC_AUTH_USER` / `SYNC_BASIC_AUTH_HASH`) must be added before `docker compose up -d --build`, otherwise compose stops with "set in .env".
+### Updating an existing install
+
+1. Get the new version (`git pull`, or switch to the branch).
+2. Add any new required values to `.env` — for this version `SYNC_BASIC_AUTH_USER` and `SYNC_BASIC_AUTH_HASH='…'` (see §2 item 5). Until you do, **every** `docker compose` command (`up`, `ps`, `logs`, `exec`) stops with "set in .env".
+3. Rebuild and restart: `docker compose up -d --build`
+4. Check the database update ran: `docker compose logs ingestor | grep "applied migrations"` shows the new migration (for this version `005_study_goals.sql`).
+5. Open the dashboard. New panels show errors until step 3 has finished.
 
 ## 4. Name resolution
 
-The sites are `tt.lifelog.lan`, `dash.lifelog.lan`, `sync.lifelog.lan`.
+The sites are `tt.lifelog.lan`, `dash.lifelog.lan`, `sync.lifelog.lan`. If you change `LIFELOG_DOMAIN`, also update `DASHBOARD_URL` in `.env` and the two links at the top of `grafana/dashboards/this-week.json`.
 
 - **Router (needed for the iPhone):** add local DNS entries for the three names pointing at the server's LAN IP. If the router cannot do this, a local DNS server (AdGuard Home) is needed — raise it before continuing. If Safari on the iPhone cannot open `*.lan` addresses, turn off 'Limit IP Address Tracking' for the home Wi-Fi (Settings → Wi-Fi → (i)) and make sure iCloud Private Relay is off for that network.
 - **Laptop (quick alternative for testing):** add to the hosts file (`C:\Windows\System32\drivers\etc\hosts` on Windows, `/etc/hosts` elsewhere):
@@ -119,8 +126,8 @@ Expected: `success: N records`.
 - TimeTagger: `https://tt.lifelog.lan/timetagger/app/` → log in. On the iPhone, open that address in Safari → Share → Add to Home Screen.
 - Grafana: `https://dash.lifelog.lan` → log in as `admin` with `GRAFANA_ADMIN_PASSWORD` → Lifelog → This Week.
 - Sync button: the "Sync now" link at the top of the dashboard (or `https://sync.lifelog.lan/sync`).
-- Weekly goals: `https://sync.lifelog.lan/goals` (or the **Set goals** link on the dashboard). Set them each Monday; last week's values are offered as a suggestion.
-- Study counts entries tagged `#study`, `#ds` / `#ds/<topic>` or `#systemanalysis`, once per entry.
+- Weekly goals: `https://sync.lifelog.lan/goals` (or the **Set goals** link on the dashboard). Set them each Monday; last week's values are offered as a suggestion. The dashboard shows *no goal set* until you press **Save**.
+- Study counts entries tagged `#study`, `#ds` / `#ds/<topic>` or `#systemanalysis`, once per entry. The Study card uses Vancouver time (weeks start Monday 00:00). This becomes configurable in M2.
 - Always include at least one `#tag` in what you log (e.g. `#study`). Entries without tags appear as `(untagged)`.
 
 ## Router checklist (security)

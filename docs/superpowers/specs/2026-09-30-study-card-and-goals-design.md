@@ -1,7 +1,7 @@
 # Study Card and Weekly Goals — Design
 
 **Date:** 2026-09-30
-**Status:** Approved in conversation; pending written review
+**Status:** Implemented on branch StudyCardandGoals (2026-09-30)
 **Branch:** `StudyCardandGoals`
 **Builds on:** `2026-09-28-lifelog-sprint1-design.md` (M1 delivered). This is the first slice of M2's feedback loop.
 
