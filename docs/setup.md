@@ -30,6 +30,11 @@ cp .env.example .env
    ```
 3. Leave `TIMETAGGER_TOKEN` empty for now.
 4. On a laptop, set `CADDY_BIND=127.0.0.1` so the stack is only reachable from the laptop itself. Keep `0.0.0.0` on the home server.
+5. Choose a login for the goals page and the Sync button: set `SYNC_BASIC_AUTH_USER` (for example your first name), then hash a password and paste it as `SYNC_BASIC_AUTH_HASH='…'` (keep the single quotes):
+   ```bash
+   docker run --rm -it caddy:2 caddy hash-password
+   ```
+   Save that password in your password manager: your browser asks for it once.
 
 On the server, protect the file: `chmod 600 .env`.
 
@@ -52,6 +57,8 @@ Postgres role passwords and the Grafana admin password are taken from `.env` onl
 - Change a database password: `docker compose exec postgres psql -U postgres -d lifelog -c "ALTER ROLE ingestor PASSWORD '<new>'"` (same for `grafana_ro`), then update `.env` and run `docker compose up -d`.
 - Change the Grafana admin password: `docker compose exec grafana grafana cli admin reset-admin-password '<new>'`.
 - Start over completely: `docker compose down -v` — ⚠️ this **deletes all data** (TimeTagger records, database, dashboards state, Caddy's certificate authority). Only for a fresh setup.
+
+**Updating an existing install:** new required `.env` values (such as `SYNC_BASIC_AUTH_USER` / `SYNC_BASIC_AUTH_HASH`) must be added before `docker compose up -d --build`, otherwise compose stops with "set in .env".
 
 ## 4. Name resolution
 
@@ -112,6 +119,8 @@ Expected: `success: N records`.
 - TimeTagger: `https://tt.lifelog.lan/timetagger/app/` → log in. On the iPhone, open that address in Safari → Share → Add to Home Screen.
 - Grafana: `https://dash.lifelog.lan` → log in as `admin` with `GRAFANA_ADMIN_PASSWORD` → Lifelog → This Week.
 - Sync button: the "Sync now" link at the top of the dashboard (or `https://sync.lifelog.lan/sync`).
+- Weekly goals: `https://sync.lifelog.lan/goals` (or the **Set goals** link on the dashboard). Set them each Monday; last week's values are offered as a suggestion.
+- Study counts entries tagged `#study`, `#ds` / `#ds/<topic>` or `#systemanalysis`, once per entry.
 - Always include at least one `#tag` in what you log (e.g. `#study`). Entries without tags appear as `(untagged)`.
 
 ## Router checklist (security)

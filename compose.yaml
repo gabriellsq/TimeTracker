@@ -82,6 +82,8 @@ services:
       - "${CADDY_BIND:-0.0.0.0}:443:443"   # set CADDY_BIND=127.0.0.1 on a laptop
     environment:
       LIFELOG_DOMAIN: ${LIFELOG_DOMAIN:?set in .env}
+      SYNC_BASIC_AUTH_USER: ${SYNC_BASIC_AUTH_USER:?set in .env}
+      SYNC_BASIC_AUTH_HASH: ${SYNC_BASIC_AUTH_HASH:?set in .env}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data      # holds the local root CA: must persist
