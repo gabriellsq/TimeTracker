@@ -30,13 +30,14 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT status, minutes_ago AS \"minutes ago\", coalesce(error, '') AS error FROM mart.v_sync_status WHERE source = 'timetagger'"
+          "rawSql": "SELECT CASE status WHEN 'success' THEN '✅ ' WHEN 'failed' THEN '❌ ' ELSE '⏳ ' END || status || ' · ' || minutes_ago || ' min ago' || coalesce(' · ' || error, '') AS \"Last sync\" FROM mart.v_sync_status WHERE source = 'timetagger'"
         }
       ],
       "options": {
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/.*/", "values": true },
-        "textMode": "value_and_name",
-        "colorMode": "none"
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "/^Last sync$/", "values": true },
+        "textMode": "value",
+        "colorMode": "none",
+        "justifyMode": "center"
       }
     },
     {
