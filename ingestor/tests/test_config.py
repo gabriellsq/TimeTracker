@@ -30,6 +30,11 @@ def test_from_env_missing_required_raises():
         Settings.from_env({"DATABASE_URL": "x"})
 
 
+def test_from_env_rejects_non_http_dashboard_url():
+    with pytest.raises(ValueError, match="DASHBOARD_URL"):
+        Settings.from_env(REQUIRED | {"DASHBOARD_URL": "javascript:alert(1)"})
+
+
 def test_repr_hides_secrets():
     env = REQUIRED | {"DATABASE_URL": "postgresql://u:s3cret@db/lifelog", "TIMETAGGER_TOKEN": "tok123"}
     text = repr(Settings.from_env(env))

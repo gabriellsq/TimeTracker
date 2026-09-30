@@ -25,6 +25,7 @@ def test_parse_targets_accepts_half_hours():
         ({"ds": "-1"}, "between 0 and 40"),
         ({"ds": "40.5"}, "between 0 and 40"),
         ({"ds": "8.3"}, "steps of 0.5"),
+        ({"ds": "8"}, "Missing subject"),
     ],
 )
 def test_parse_targets_rejects_bad_input(raw, message):

@@ -13,7 +13,8 @@ class GoalsView:
     week_start: date
     subjects: list[Subject]
     values: dict[str, Decimal]  # what the sliders show, per subject
-    saved: bool  # True: this week's saved goals. False: suggestion, not saved yet
+    saved: str  # "all" | "some" | "none": how many subjects have a saved goal this week
+    suggested: bool  # last week had goals
     last_week_planned: Decimal | None
     last_week_done: Decimal
     dashboard_url: str
@@ -58,6 +59,8 @@ function update() {
   document.getElementById('total').textContent = total + ' h';
 }
 sliders.forEach(s => s.addEventListener('input', update));
+update();
+window.addEventListener('pageshow', update);
 """
 
 
@@ -72,9 +75,14 @@ def render(view: GoalsView) -> str:
             f'<input type="range" id="goal_{key}" name="goal_{key}" data-subject="{key}" '
             f'min="0" max="{hours(MAX_HOURS)}" step="{hours(STEP)}" value="{value}"></div>'
         )
-    total = hours(sum(view.values.values(), Decimal(0)))
-    status = "Saved" if view.saved else "Suggested from last week, not saved yet"
-    if not view.saved and not view.values:
+    total = hours(sum((view.values.get(s.subject, Decimal(0)) for s in view.subjects), Decimal(0)))
+    if view.saved == "all":
+        status = "Saved"
+    elif view.saved == "some":
+        status = "Some subjects are not saved yet"
+    elif view.suggested:
+        status = "Suggested from last week, not saved yet"
+    else:
         status = "No goals yet"
     planned = "no goal" if view.last_week_planned is None else f"planned {hours(view.last_week_planned)} h"
     error = f'<p class="error">{escape(view.error)}</p>' if view.error else ""

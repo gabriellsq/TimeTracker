@@ -74,6 +74,9 @@ def parse_targets(raw: dict[str, str], subjects: list[Subject]) -> dict[str, Dec
         if value % STEP != 0:
             raise GoalError(f"{subject}: use steps of 0.5 hours")
         targets[subject] = value
+    missing = [s.label for s in subjects if s.subject not in raw]
+    if missing:
+        raise GoalError(f"Missing subject: {', '.join(missing)}")
     return targets
 
 
@@ -82,7 +85,7 @@ def save_goals(conn: psycopg.Connection, week_start: date, targets: dict[str, De
     if week_start.isoweekday() != 1:
         raise GoalError("The week must start on a Monday")
     if week_start < current_week_start(conn):
-        raise GoalError("Past weeks cannot be changed")
+        raise GoalError("Past weeks cannot be changed: a new week has started. Review the goals and save again.")
     with conn.transaction():
         for subject, hours in targets.items():
             conn.execute(
