@@ -129,6 +129,7 @@ Expected: `success: N records`.
 - Weekly goals: `https://sync.lifelog.lan/goals` (or the **Set goals** link on the dashboard). Set them each Monday; last week's values are offered as a suggestion. The dashboard shows *no goal set* until you press **Save**.
 - Study counts entries tagged `#study`, `#ds` / `#ds/<topic>` or `#systemanalysis`, once per entry. The Study card uses Vancouver time (weeks start Monday 00:00). This becomes configurable in M2.
 - Always include at least one `#tag` in what you log (e.g. `#study`). Entries without tags appear as `(untagged)`.
+- **Timer check** (top of the dashboard) warns about timers running or lasting over 6 hours. Fix the entry in TimeTagger, or add `#long` to a genuinely long session to silence the warning.
 
 ## Router checklist (security)
 
